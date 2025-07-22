@@ -8,7 +8,6 @@ A **multi‑agent investment‑research system** powered by **Google ADK**, **Ge
 
 * **Parallel Company, Macro, and Financial Search** – three specialised agents run in sequence and then hand results to a synthesis agent.
 * **Pluggable Tooling** – drop‑in MCP toolsets for Smithery and FMP; easy to add more.
-* **Vertex AI‑ready** – flip `GOOGLE_GENAI_USE_VERTEXAI` to `1` to route LLM calls through Vertex AI.
 
 ---
 
