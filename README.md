@@ -16,6 +16,7 @@ A **multi‑agent investment‑research system** powered by **Google ADK**, **Ge
 
 ```text
 financial-research-agent/
+├── assets/                 # Sample results
 ├── agents/                 # Company, FMP, and FOMC agents
 ├── src/                    # Entry point for `adk web` demo
 ├── .env.example            # Copy → .env and update keys
