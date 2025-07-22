@@ -102,17 +102,7 @@ $ adk web
 
 ---
 
-## 5 · Customising & Extending
-
-| Task                | Where                              |
-| ------------------- | ---------------------------------- |
-| Edit agent prompts  | `agents/**/agent.py`               |
-| Add extra MCP tools | `agents/<new_tool>/`               |
-| Change model tiers  | `.env → GOOGLE_GENAI_USE_VERTEXAI` |
-
----
-
-## 6 · Reference – Core Agents
+## 5· Reference – Core Agents
 
 | Agent                                 | Purpose                               | Tools              |
 | ------------------------------------- | ------------------------------------- | ------------------ |
