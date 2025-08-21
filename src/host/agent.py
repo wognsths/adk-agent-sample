@@ -14,6 +14,7 @@ from agents.financial_modeling.agent import financial_research_agent
 from agents.fomc_research.agent import root_agent as fomc_research_agent
 
 from .prompt import SYSTEM_INSTRUCTION
+from .pdf_report_tool import create_markdown_report_tool
 
 def set_api_key_for_agent(agent_name, key_number):
     api_key = os.getenv(f"GOOGLE_API_KEY{key_number}")
@@ -37,8 +38,8 @@ set_api_key_for_agent("analyzer",4)
 
 integrated_search_agent = SequentialAgent(
     sub_agents=[
-        company_search_agent_configured,
         financial_research_agent_configured,
+        company_search_agent_configured,
         fomc_research_agent_configured, 
     ],
     name="parallel_investment_research_agent",
@@ -49,7 +50,8 @@ analyzer_agent = LlmAgent(
     model="gemini-2.5-pro",
     name="investment_research_synthesizer",
     description="Analyze the data from investment research and get final judgement on whether to invest or not.",
-    instruction=SYSTEM_INSTRUCTION
+    instruction=SYSTEM_INSTRUCTION,
+    tools=[create_markdown_report_tool]
 )
 
 investment_research_pipeline = SequentialAgent(
