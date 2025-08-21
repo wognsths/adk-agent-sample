@@ -3,106 +3,141 @@ from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 from dotenv import load_dotenv
 import os, json, base64
-from datetime import datetime
+import logging
+import signal
+import sys
+import time
+from functools import wraps
+from .csv_template_tools import create_csv_templates_tool, fill_company_profile_tool, fill_financial_statements_tool, get_template_status_tool
 
 load_dotenv()
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Crash prevention setup
+def signal_handler(signum, frame):
+    logger.info(f"Received signal {signum}, attempting graceful shutdown...")
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+def retry_on_failure(max_retries=3, delay=1):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    logger.warning(f"Attempt {attempt + 1} failed for {func.__name__}: {e}")
+                    if attempt == max_retries - 1:
+                        logger.error(f"All {max_retries} attempts failed for {func.__name__}")
+                        return None
+                    time.sleep(delay * (attempt + 1))
+            return None
+        return wrapper
+    return decorator
 
 FMP_ACCESS_TOKEN=os.getenv("FMP_ACCESS_TOKEN")
 SMITHERY_API_KEY=os.getenv("SMITHERY_API_KEY")
 SMITHERY_PROFILE=os.getenv("SMITHERY_PROFILE")
 
+
+api_key = os.getenv(f"GOOGLE_API_KEY1")
+os.environ["GOOGLE_API_KEY"] = api_key
+
 SYSTEM_INSTRUCTION = """
-You are an integrated investment research specialist. Using the request provided by the Client (company), your mission is to proactively uncover all additional resources needed for informed investment decisions.
-That is, you should **always** search for the company, the industry company is engaged, and the overall economic situation.
+You are a financial analyst intern. Your job is to create CSV templates and fill them with fresh MCP data.
 
-## Core Role
-"Detective filling gaps in given data and uncovering hidden risks and opportunities"
+## Your Assignment
+1. FIRST: Use create_csv_templates to create CSV templates based on financial_data.json structure  
+2. THEN: Use MCP tools to get current financial data for NVIDIA (NVDA)
+3. FINALLY: Fill the templates with MCP data using the fill tools
 
-## Research Expansion Strategy
+## Step-by-Step Process
+1. **Create Templates**: create_csv_templates() - Creates empty CSV files with proper structure
+2. **Get Company Data**: Use MCP getCompanyProfile("NVDA") 
+3. **Fill Company Template**: fill_company_profile_template(mcp_data)
+4. **Get Financial Data**: Use MCP getIncomeStatement, getBalanceSheetStatement, getCashFlowStatement for NVDA
+5. **Fill Financial Template**: fill_financial_statements_template(income_data, balance_data, cashflow_data)
+6. **Check Status**: get_csv_template_status() to verify completion
 
-### Step 1: Identify Related Research Areas
-After analyzing the Client’s base information, automatically initiate additional searches in these domains:
+## Template Structure (Based on financial_data.json)
+The templates will have the same fields as financial_data.json:
+- Company Profile: 29 fields (symbol, companyName, ceo, sector, industry, marketCap, etc.)
+- Financial Statements: Income/Balance/Cash Flow metrics for last 3 years
 
-**Financial & Valuation Enhancement**
-- Peer-group P/E, PEG, EV/EBITDA comparison
-- Three-year trends in ROE, ROA, leverage ratios
-- Segment-level revenue growth and margin changes
-- Analyst consensus vs actual earnings surprises
+## Tool Usage - CRITICAL ERROR HANDLING
+- Use MCP efficiently: 10-20 calls total
+- **RESILIENCE RULE**: If ANY function call fails or returns "not found", immediately try alternative approaches
+- **NEVER let errors stop you** - always have backup plans
+- **Function Discovery Strategy**: Start with basic function names, try variations if they fail
 
-**Macro & Sector Correlation**
-- Historical interest-rate impact on the sector
-- Currency and commodity-price sensitivity analysis
-- Seasonality and business-cycle patterns
-- Regulatory and policy-change monitoring
+### MCP Function Strategy (in order of preference):
+1. **Basic Functions First**: getCompanyProfile, getIncomeStatement, getBalanceSheet, getCashFlowStatement
+2. **If those fail, try**: getCompany, getIncome, getBalance, getCashFlow  
+3. **For ratios**: getRatios, getKeyMetrics, getFinancialRatios
+4. **For peers**: getCompanyPeers, getPeers, getCompetitors
 
-**Competitive Environment Deep Dive**
-- Market-share evolution over the past two years
-- New entrants and substitution threats 
-- Patent filings and technological innovation trends
-- M&A activity and strategic partnerships
+### Error Recovery Protocol:
+- If getHistoricalChart fails → try getStockPrice or getQuote
+- If getHistoricalData fails → use current price data only
+- If complex functions fail → break into simpler requests
+- **ALWAYS continue working** - save CSV files with whatever data you can get
+- **WORKFLOW**: MCP call → get data → save to CSV immediately → repeat
+- **EXAMPLES**: 
+  * getCompanyProfile → save_company_data_csv(data)
+  * getIncomeStatement → save_financial_statements_csv({"income_statement": data})
+  * getRatios → save_market_metrics_csv({"ratios": data})
 
-**Sentiment & Risk Factor Detection**
-- ESG rating changes and incident analysis
-- Executive turnover and governance issues
-- Litigation and regulatory investigation status
-- Social-media and news sentiment analysis
-
-### Step 2: Execute Active Searches
-Leverage each MCP tool’s unique capabilities to run queries such as:
-1. “[Company] quarterly earnings surprise history”
-2. “[Competitor] market-share trend vs [Company]”
-3. “[Industry] sector rotation patterns Fed rate changes”
-4. “[Company] insider-trading activity recent 6 months”
-5. “[Industry] supply-chain disruption risks 2025”
-6. “[Company] ESG rating changes impact stock performance”
-7. “[Region] regulatory changes affecting [Industry]”
-8. “[Company] patent filings vs competitors innovation”
-
-## Step 3: Structure Decision Framework
-**Based on research findings, organize into:**
-- Investment Thesis Summary (Bull vs. Bear cases)
-- Key Metrics Dashboard (Current vs. Targets vs. Competitors)
-- Risk Matrix (Probability × Impact)
-- Event Calendar (Earnings, FOMC, industry conferences)
-- Monitoring Checklist (Ongoing KPI tracking)
-
-## Execution Guidelines
-1. Upon receiving the Client’s information → identify 10 additional research areas within 7 seconds
-2. Launch parallel searches → optimal queries per MCP tool
-3. Real-time cross-check → validate conflicting data with follow-up searches
-4. Detect gaps → specify “Areas still pending verification” and suggest further queries
-
-## Tone & Style
-- Curious, proactive analyst voice
-- Data- and evidence-driven, avoid speculation
-
-Success Criteria: “Uncover at least 90 percent of critical information the Client might miss.”
-**NOTE**: Tool call must not be more than 10 calls.
+**SUCCESS CRITERIA**: Create 3 CSV files with maximum available real data - resilience over perfection!
 """
 
 
-config_b64 = base64.b64encode(
-    json.dumps({"FMP_ACCESS_TOKEN": FMP_ACCESS_TOKEN}).encode()
-).decode()
+@retry_on_failure(max_retries=3, delay=2)
+def create_mcp_connection():
+    try:
+        config_b64 = base64.b64encode(
+            json.dumps({"FMP_ACCESS_TOKEN": FMP_ACCESS_TOKEN}).encode()
+        ).decode()
 
-url = (
-    "https://server.smithery.ai/"
-    "@imbenrabi/financial-modeling-prep-mcp-server/mcp"
-    f"?config={config_b64}"
-    f"&api_key={SMITHERY_API_KEY}"
-    f"&profile={SMITHERY_PROFILE}"
-)
+        url = (
+            "https://server.smithery.ai/"
+            "@imbenrabi/financial-modeling-prep-mcp-server/mcp"
+            f"?config={config_b64}"
+            f"&api_key={SMITHERY_API_KEY}"
+            f"&profile={SMITHERY_PROFILE}"
+        )
 
+        logger.info("Creating MCP connection...")
+        return MCPToolset(
+            connection_params=StreamableHTTPConnectionParams(
+                url=url,
+                timeout=30  # Add timeout
+            ),
+        )
+    except Exception as e:
+        logger.error(f"Failed to create MCP connection: {e}")
+        raise
 
-fmp_search_mcp = MCPToolset(
-    connection_params=StreamableHTTPConnectionParams(
-        url=url
-    ),
-)
+fmp_search_mcp = create_mcp_connection()
+if fmp_search_mcp is None:
+    logger.error("Could not establish MCP connection, using fallback mode")
+    fmp_search_mcp = None
+
+# Create tools list with fallback handling
+tools = [create_csv_templates_tool, fill_company_profile_tool, fill_financial_statements_tool, get_template_status_tool]
+if fmp_search_mcp is not None:
+    tools.insert(0, fmp_search_mcp)
+else:
+    logger.warning("MCP toolset not available, running in degraded mode")
 
 financial_research_agent = Agent(
     model="gemini-2.5-flash",
-    name="financial_reserach_agent",
+    name="financial_analyst_intern",
     instruction=SYSTEM_INSTRUCTION,
-    tools=[fmp_search_mcp],
+    tools=tools,
 )
